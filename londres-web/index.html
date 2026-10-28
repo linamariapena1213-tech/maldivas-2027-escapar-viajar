@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow,noarchive,nosnippet">
+<title>Londres en familia · Low Travel · Acceso privado</title>
+<style>
+:root{font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#2b2822;background:#f8f4e9}
+*{box-sizing:border-box}html,body{margin:0;min-height:100%}main{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:25px;background:radial-gradient(ellipse at 50% 20%,#fffcf4,#f0e7d4)}
+.panel{width:min(100%,440px);text-align:center;background:rgba(255,255,255,.88);border:1px solid #e2d3b2;border-radius:24px;box-shadow:0 14px 50px #8e77512b;padding:40px 30px}
+.emblem{display:inline-grid;place-items:center;width:58px;height:58px;border:1px solid #c5a25b;border-radius:50%;font-size:25px;color:#bc9046;box-shadow:0 3px 12px #c9a24b2b}
+h1{margin:20px 0 8px;font:600 clamp(26px,5vw,33px)/1.18 Georgia,serif;color:#514231}p{color:#766e61;line-height:1.6;font-size:14px;margin:8px 0 22px}
+label{display:block;text-align:left;font-size:12px;letter-spacing:.05em;font-weight:700;margin:18px 0 7px;color:#5d523e}input{display:block;width:100%;height:49px;border:1px solid #d9c9aa;border-radius:14px;background:#fff;padding:0 15px;font-size:17px;letter-spacing:.045em;outline-color:#c49e50}
+button{cursor:pointer;display:inline-flex;justify-content:center;align-items:center;gap:7px;border-radius:14px;border:1px solid #bb9a58;background:linear-gradient(#f4e6bc,#e8cf92);min-height:46px;padding:10px 20px;font-weight:650;color:#50402a;box-shadow:0 3px 0 #b79a60,0 8px 18px #ad8e4f3a}button:hover{filter:brightness(1.035)}#unlock{width:100%;margin-top:15px}#message{min-height:20px;font-size:13px;margin:15px 0 0}#message.err{color:#ab302d}#message.info{color:#716243}.mini{margin-top:22px;font-size:11px;color:#9a8d7e}.hidden{display:none!important}#viewer{position:fixed;inset:0;background:#fff;width:100vw;height:100dvh;border:0;z-index:5}#progress{height:4px;width:0;background:#ba9450;transition:width .25s ease;position:absolute;top:0;left:0}
+</style>
+</head><body>
+<main id="welcome"><div class="panel"><div class="emblem">✈</div><h1>Londres en familia</h1><p>Tu reserva de viaje · Low Travel<br>Acceso privado a la documentación de la familia</p><form id="login"><label for="pass">Contraseña de acceso</label><input id="pass" type="password" spellcheck="false" autocomplete="off" required placeholder="Introduce tu contraseña"><button id="unlock" type="submit">Abrir mi reserva</button></form><div id="message" role="status" aria-live="polite"></div><div class="mini">Tu documentación se descifra únicamente en tu dispositivo.</div></div><div id="progress"></div></main>
+<iframe id="viewer" title="Presentación de Londres en familia" class="hidden" allow="fullscreen" referrerpolicy="no-referrer"></iframe>
+<script>
+const manifest={"salt":"o0aiKKhtrZ9ap5AKl3+xJg==","iv":"dQTv31gwYKbEDToQ","count":28,"iter":250000};
+const $=s=>document.querySelector(s);let busy=false;
+function bytes(b64){const b=atob(b64);const a=new Uint8Array(b.length);for(let i=0;i<b.length;i++)a[i]=b.charCodeAt(i);return a}
+function info(s,err=false){$('#message').textContent=s;$('#message').className=err?'err':'info'}
+async function unlock(password){
+ if(busy)return;busy=true;$('#unlock').disabled=true;
+ try{
+  if(!crypto?.subtle)throw Error('Este navegador no admite el acceso cifrado. Usa una versión actualizada.');
+  if(typeof DecompressionStream==='undefined')throw Error('Actualiza tu navegador para abrir este documento.');
+  info('Cargando la documentación protegida…');
+  // La documentación cifrada está dividida en archivos pequeños para su publicación segura.
+  const paths=[];
+  for(let n=1;n<=manifest.count;n++){
+    const base=`part-${String(n).padStart(3,'0')}`;
+    if([1,11,16].includes(n))for(const suffix of ['a','b','c','d'])paths.push(`${base}-${suffix}.txt`);
+    else paths.push(`${base}.txt`);
+  }
+  const parts=new Array(paths.length), batchSize=8;
+  for(let i=0;i<paths.length;i+=batchSize){
+   await Promise.all(Array.from({length:Math.min(batchSize,paths.length-i)},(_,j)=>i+j).map(async n=>{
+    const r=await fetch(`./assets/${paths[n]}`,{cache:'force-cache'});
+    if(!r.ok)throw Error('No se pudo recuperar la documentación.');
+    parts[n]=(await r.text()).replace(/\s/g,'');
+   }));
+   $('#progress').style.width=Math.round(65*Math.min(i+batchSize,paths.length)/paths.length)+'%';
+  }
+  info('Verificando la contraseña…');
+  const encoder=new TextEncoder();
+  const keyMaterial=await crypto.subtle.importKey('raw',encoder.encode(password),'PBKDF2',false,['deriveKey']);
+  const key=await crypto.subtle.deriveKey({name:'PBKDF2',salt:bytes(manifest.salt),iterations:manifest.iter,hash:'SHA-256'},keyMaterial,{name:'AES-GCM',length:256},false,['decrypt']);
+  let plain;
+  try{plain=await crypto.subtle.decrypt({name:'AES-GCM',iv:bytes(manifest.iv)},key,bytes(parts.join('')))}catch(e){throw Error('Contraseña incorrecta. Comprueba los datos e inténtalo de nuevo.');}
+  info('Abriendo la presentación…');$('#progress').style.width='95%';
+  const stream=new Blob([plain],{type:'application/gzip'}).stream().pipeThrough(new DecompressionStream('gzip'));
+  const html=await new Response(stream).text();
+  if(!html.includes('Familia Gómez Jiménez')&&!html.includes('familia Gómez Jiménez'))throw Error('El documento no se pudo verificar.');
+  const url=URL.createObjectURL(new Blob([html],{type:'text/html;charset=utf-8'}));
+  $('#viewer').addEventListener('load',()=>{$('#viewer').classList.remove('hidden');$('#welcome').classList.add('hidden')},{once:true});
+  $('#viewer').src=url;
+ }catch(e){info(e?.message||'No se pudo abrir la presentación.',true);$('#progress').style.width='0'}
+ finally{busy=false;$('#unlock').disabled=false;}
+}
+$('#login').addEventListener('submit',e=>{e.preventDefault();unlock($('#pass').value);});
+</script></body></html>
