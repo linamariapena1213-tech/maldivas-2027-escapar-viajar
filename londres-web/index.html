@@ -17,7 +17,7 @@ button{cursor:pointer;display:inline-flex;justify-content:center;align-items:cen
 <main id="welcome"><div class="panel"><div class="emblem">✈</div><h1>Londres en familia</h1><p>Tu reserva de viaje · Low Travel<br>Acceso privado a la documentación de la familia</p><form id="login"><label for="pass">Contraseña de acceso</label><input id="pass" type="password" spellcheck="false" autocomplete="off" required placeholder="Introduce tu contraseña"><button id="unlock" type="submit">Abrir mi reserva</button></form><div id="message" role="status" aria-live="polite"></div><div class="mini">Tu documentación se descifra únicamente en tu dispositivo.</div></div><div id="progress"></div></main>
 <iframe id="viewer" title="Presentación de Londres en familia" class="hidden" allow="fullscreen" referrerpolicy="no-referrer"></iframe>
 <script>
-const manifest={"salt":"o0aiKKhtrZ9ap5AKl3+xJg==","iv":"dQTv31gwYKbEDToQ","count":28,"iter":250000};
+const manifest={"salt":"o0aiKKhtrZ9ap5AKl3+xJg==","iv":"dQTv31gwYKbEDToQ","count":28,"iter":250000,"wrapSalt":"ggoSKJ6t78RTKSABHpL1Gg==","wrapIv":"ATWlJsascd1fqYIY","wrapIter":250000,"wrapKey":"5iPOAbVxr79isb95NyfrET+6SLSqJpFNgQaVfHOnmoG/T6ThamHV+JPQtG02ZXCz"};
 const $=s=>document.querySelector(s);let busy=false;
 function bytes(b64){const b=atob(b64);const a=new Uint8Array(b.length);for(let i=0;i<b.length;i++)a[i]=b.charCodeAt(i);return a}
 function info(s,err=false){$('#message').textContent=s;$('#message').className=err?'err':'info'}
@@ -45,10 +45,15 @@ async function unlock(password){
   }
   info('Verificando la contraseña…');
   const encoder=new TextEncoder();
-  const keyMaterial=await crypto.subtle.importKey('raw',encoder.encode(password),'PBKDF2',false,['deriveKey']);
-  const key=await crypto.subtle.deriveKey({name:'PBKDF2',salt:bytes(manifest.salt),iterations:manifest.iter,hash:'SHA-256'},keyMaterial,{name:'AES-GCM',length:256},false,['decrypt']);
+  const normalized=password.trim().normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase();
+  const keyMaterial=await crypto.subtle.importKey('raw',encoder.encode(normalized),'PBKDF2',false,['deriveKey']);
+  const wrapKey=await crypto.subtle.deriveKey({name:'PBKDF2',salt:bytes(manifest.wrapSalt),iterations:manifest.wrapIter,hash:'SHA-256'},keyMaterial,{name:'AES-GCM',length:256},false,['decrypt']);
   let plain;
-  try{plain=await crypto.subtle.decrypt({name:'AES-GCM',iv:bytes(manifest.iv)},key,bytes(parts.join('')))}catch(e){throw Error('Contraseña incorrecta. Comprueba los datos e inténtalo de nuevo.');}
+  try{
+   const rawKey=await crypto.subtle.decrypt({name:'AES-GCM',iv:bytes(manifest.wrapIv)},wrapKey,bytes(manifest.wrapKey));
+   const key=await crypto.subtle.importKey('raw',rawKey,'AES-GCM',false,['decrypt']);
+   plain=await crypto.subtle.decrypt({name:'AES-GCM',iv:bytes(manifest.iv)},key,bytes(parts.join('')));
+  }catch(e){throw Error('Contraseña incorrecta. Comprueba los datos e inténtalo de nuevo.');}
   info('Abriendo la presentación…');$('#progress').style.width='95%';
   const stream=new Blob([plain],{type:'application/gzip'}).stream().pipeThrough(new DecompressionStream('gzip'));
   const html=await new Response(stream).text();
